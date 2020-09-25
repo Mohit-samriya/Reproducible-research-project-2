@@ -1,0 +1,183 @@
+---
+title: "Impact of severe weather events on Public Health and the Economy"
+author: "Faiyaz Hasan"
+date: "June 21, 2016"
+output: html_document
+---
+
+
+1. Synopsis
+-----------
+
+In this document, we takes datasets from the U.S. National Oceanic and Atmospheric Administration's storm database to find out which types of severe weather events lead to maximal (i) economic and (ii) public health damage. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+2. Loading and processing data
+------------------------------
+```{r working directory}
+setwd("C:\\Users\\Windows\\Documents\\JHU_Data_Science\\Course_5\\Project_2") # Set Project_2 as the working directory
+```
+
+Set the database url, destination filename in the Project_2 folder and then load the data.
+
+```{r data load, cache = TRUE}
+URL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2" # Database URL
+destfile <- "storm_data.csv.bz2" # destination file name
+download.file(URL, destfile) # download file
+```
+
+Read data from the data file.
+```{r read data, cache = TRUE}
+storm_data <- read.csv(destfile) # Read in csv format data
+```
+
+Change column names to lower case.
+```{r change column names}
+names(storm_data) <- tolower(names(storm_data)) # Change all field names to lowercase
+```
+
+Details of the data frame: dimensions, variable names, structure etc.
+```{r data details}
+dim(storm_data) # dimensions of storm data
+names(storm_data) # column names of storm data
+str(storm_data) # structure of storm data
+```
+In this analysis, we are interested in three types of variables: variables indicating severe event type, economic impact and public health impact. We remove any other variables that are not relevant. Information about these variables and the data in general come from the National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf) and the National Weather Service [storm data documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
+
+The following three variable categories are of interest. We remove all other columns of data.
+
+Variables names related to storm type: `evtype`
+Variable names related to public health: `fatalities`, `injuries`
+Variable names related to property/crop damage: `propdmg`, `propdmgexp`, `cropdmg`, and `cropdmgexp`. The first three significant digits are given by `propdmg` and `cropdmg`. The exponents are given by `propdmgexp` and `cropdmgexp`.
+
+```{r Reduced columns, message = FALSE}
+library(dplyr)
+# Keep public health and economic (property/crops) impact data
+data <- select(storm_data, state__, county, evtype, fatalities, 
+               injuries, propdmg, propdmgexp, cropdmg, cropdmgexp)
+# Thunderstorm winds and thunderstorm wind are the same thing
+data$evtype[which(data$evtype == "THUNDERSTORM WINDS")] <- "THUNDERSTORM WIND"
+str(data) # structure of data set
+levels(factor(data$cropdmgexp)) # Set of values taken by cropdmgexp
+levels(factor(data$propdmgexp)) # Set of values taken by propdmgexp
+```
+
+Only one data point takes on the value of `-`. We replace it with `NA`.
+
+Replace exponents of property and crop damage characters by equivalent numeric value.
+```{r replace exponent characters}
+# Replace exponents by characters by equivalent numbers
+
+data$cropdmgexp <- sub("^1$", "10", data$cropdmgexp) 
+data$cropdmgexp <- sub("^2$", "100", data$cropdmgexp) 
+data$cropdmgexp <- sub("^3$", "1000", data$cropdmgexp) 
+data$cropdmgexp <- sub("^4$", "10000", data$cropdmgexp) 
+data$cropdmgexp <- sub("^5$", "100000", data$cropdmgexp) 
+data$cropdmgexp <- sub("^6$", "1000000", data$cropdmgexp) 
+data$cropdmgexp <- sub("^0$", "1", data$cropdmgexp) 
+data$cropdmgexp <- sub("^?$", "1", data$cropdmgexp) 
+data$cropdmgexp <- sub("^$", "1", data$cropdmgexp) 
+data$cropdmgexp <- sub("^[Kk]$", "100000", data$cropdmgexp) 
+data$cropdmgexp <- sub("^[Mm]$", "1000000", data$cropdmgexp)
+data$cropdmgexp <- sub("^[B]$", "1000000000", data$cropdmgexp)
+
+data$propdmgexp <- sub("^1$", "10", data$propdmgexp) 
+data$propdmgexp <- sub("^2$", "100", data$propdmgexp) 
+data$propdmgexp <- sub("^3$", "1000", data$propdmgexp) 
+data$propdmgexp <- sub("^4$", "10000", data$propdmgexp) 
+data$propdmgexp <- sub("^5$", "100000", data$propdmgexp) 
+data$propdmgexp <- sub("^6$", "1000000", data$propdmgexp) 
+data$propdmgexp <- sub("^7$", "10000000", data$propdmgexp) 
+data$propdmgexp <- sub("^8$", "100000000", data$propdmgexp) 
+data$propdmgexp <- sub("^0$", "1", data$propdmgexp) 
+data$propdmgexp <- sub("^?$", "1", data$propdmgexp) 
+data$propdmgexp <- sub("^$", "1", data$propdmgexp) 
+data$propdmgexp <- sub("^[Kk]$", "100000", data$propdmgexp) 
+data$propdmgexp <- sub("^[Mm]$", "1000000", data$propdmgexp)
+data$propdmgexp <- sub("^[B]$", "1000000000", data$propdmgexp)
+```
+
+The two characters `+` and `-` in `propdmgexp` are ambiguous. So we represent them as `NA`.
+
+```{r check/remove missing values}
+data[data == "-" | data == "+"] <- NA # Replace + and - with NA
+sum(!complete.cases(data)) # Number of rows with NA values
+```
+
+Convert `propdmgexp, cropdmgexp` into numeric values.
+```{r character to numeric values}
+data$propdmgexp <- suppressWarnings(as.numeric(data$propdmgexp))
+data$cropdmgexp <- suppressWarnings(as.numeric(data$cropdmgexp))
+data$propdmg <- data$propdmg * data$propdmgexp # Property damage in dollars
+data$cropdmg <- data$cropdmg * data$cropdmgexp # Crop damage in dollars
+# Removing prop and crop dmg exp since it is redundant and might be confusing
+data <- select(data, state__, county, evtype, fatalities, injuries, propdmg, cropdmg)
+str(data) # Structure of processed data
+```
+The final processed data is represented by the data frame `data'.
+
+
+3. Main Results
+---------------
+
+### Total damage in terms of dollars, fatalities and injuries
+We aggregate the total amount of damage done for crops, properties, injuries and fatalities per severe event type.  
+
+```{r aggregate impact}
+fatalitiesdata <- arrange(aggregate(fatalities ~ evtype, data = data, FUN = sum, na.rm = 
+                          TRUE), desc(fatalities))
+head(fatalitiesdata, 10)
+injuriesdata <- arrange(aggregate(injuries ~ evtype, data = data, FUN = sum, na.rm = 
+                        TRUE), desc(injuries))
+head(injuriesdata, 10)
+propertydata <- arrange(aggregate(propdmg ~ evtype, data = data, FUN = sum, na.rm = 
+                        TRUE), desc(propdmg))
+head(propertydata, 10)
+cropdata <- arrange(aggregate(cropdmg ~ evtype, data = data, FUN = sum, na.rm = TRUE), 
+                    desc(cropdmg))
+head(cropdata, 10)
+```
+
+### Economic Impact
+
+Let us look at a subset of the columns of `data` related to severe event type and the correspnding economic cost (in dollars).
+
+```{r property and crop damage histogram}
+propertydamagetop10 <- propertydata[1:10, ]
+cropdamagetop10 <- cropdata[1:10, ]
+par(mfrow = c(1, 2), mar = c(10, 3, 3, 2))
+barplot(propertydamagetop10$propdmg/10^9, las = 3, names.arg = propertydamagetop10$evtype, col = "steelblue", main = "Top 10 causes for property damage", cex.names = 0.8, ylab = "Property damage (billion dollars)")
+barplot(cropdamagetop10$cropdmg/10^9, las = 3, names.arg = cropdamagetop10$evtype, col = "steelblue", cex.names = 0.8, main = "Top 10 causes for crop damage", ylab = "Crop damage (billion dollars)")
+```
+
+### Public Health Impact
+
+Let us look at the impact of severe events on fatalities and injuries.
+
+```{r public health impact}
+fatalitiestop10 <- fatalitiesdata[1:10, ]
+injuriestop10 <- injuriesdata[1:10, ]
+par(mfrow = c(1, 2), mar = c(10, 3, 3, 2))
+barplot(fatalitiestop10$fatalities, las = 3, cex.names = 0.8, names.arg = fatalitiestop10$evtype, col = "red", main = "Top 10 causes for fatalities", ylab = "Number of fatalities")
+barplot(injuriestop10$injuries, las = 3, cex.names = 0.8, names.arg = injuriestop10$evtype, col = "red", main = "Top 10 causes for injuries", ylab = "Number of injuries")
+```
+
+4. Summary of results
+---------------------
+
+Tornadoes are the most damaging event for fatalities, injuries and property damage while it is the 6th most damaging towards crops. Meanwhile, hail has the greatest impact on crop damage.
+
+Some form of flood(flash/regular) consistently rank high as a damaging factor across all the categories.
+
+
+
+
+
+
+
+
+
